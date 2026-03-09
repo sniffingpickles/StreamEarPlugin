@@ -1,0 +1,10 @@
+build/
+cmake-build-*/
+*.o
+*.so
+*.dylib
+*.dll
+*.lib
+*.a
+.DS_Store
+*.swp

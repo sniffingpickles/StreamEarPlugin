@@ -1,0 +1,153 @@
+name: Build Windows Plugin
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  OBS_VERSION: '30.2.3'
+  PLUGIN_NAME: 'obs-streamear'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        arch: [x64]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download OBS SDK
+        run: |
+          $obsUrl = "https://github.com/obsproject/obs-studio/releases/download/${{ env.OBS_VERSION }}/OBS-Studio-${{ env.OBS_VERSION }}-Windows.zip"
+          $sdkUrl = "https://github.com/obsproject/obs-studio/releases/download/${{ env.OBS_VERSION }}/OBS-Studio-${{ env.OBS_VERSION }}-Windows-SDK.zip"
+          
+          # Try SDK package first, fall back to building with full OBS
+          try {
+            Invoke-WebRequest -Uri $sdkUrl -OutFile obs-sdk.zip -ErrorAction Stop
+            Expand-Archive -Path obs-sdk.zip -DestinationPath obs-sdk
+          } catch {
+            Write-Host "SDK zip not available, downloading full OBS..."
+            Invoke-WebRequest -Uri $obsUrl -OutFile obs-full.zip
+            Expand-Archive -Path obs-full.zip -DestinationPath obs-sdk
+          }
+          
+          # Find the actual SDK/include path
+          Get-ChildItem -Path obs-sdk -Recurse -Filter "obs-module.h" | Select-Object -First 1 | ForEach-Object {
+            Write-Host "Found OBS headers at: $($_.DirectoryName)"
+          }
+
+      - name: Setup CMake libobs package
+        run: |
+          # Create a CMake find module for libobs
+          $findModuleDir = "cmake"
+          New-Item -ItemType Directory -Force -Path $findModuleDir
+          
+          # Search for obs paths
+          $obsInclude = (Get-ChildItem -Path obs-sdk -Recurse -Filter "obs-module.h" -ErrorAction SilentlyContinue | Select-Object -First 1).DirectoryName
+          $obsLib = (Get-ChildItem -Path obs-sdk -Recurse -Filter "obs.lib" -ErrorAction SilentlyContinue | Select-Object -First 1).DirectoryName
+          
+          if (-not $obsLib) {
+            $obsLib = (Get-ChildItem -Path obs-sdk -Recurse -Filter "obs.dll" -ErrorAction SilentlyContinue | Select-Object -First 1).DirectoryName
+          }
+          
+          Write-Host "OBS Include: $obsInclude"
+          Write-Host "OBS Lib: $obsLib"
+          
+          # Write FindLibObs cmake module
+          @"
+          # FindLibObs
+          find_path(LIBOBS_INCLUDE_DIR
+            NAMES obs-module.h
+            PATHS
+              `${CMAKE_CURRENT_LIST_DIR}/../obs-sdk
+            PATH_SUFFIXES
+              include
+              libobs
+              include/obs
+          )
+          
+          find_library(LIBOBS_LIB
+            NAMES obs libobs
+            PATHS
+              `${CMAKE_CURRENT_LIST_DIR}/../obs-sdk
+            PATH_SUFFIXES
+              lib
+              lib64
+              bin
+              bin/64bit
+          )
+          
+          include(FindPackageHandleStandardArgs)
+          find_package_handle_standard_args(libobs DEFAULT_MSG LIBOBS_LIB LIBOBS_INCLUDE_DIR)
+          
+          if(libobs_FOUND)
+            if(NOT TARGET OBS::libobs)
+              add_library(OBS::libobs SHARED IMPORTED)
+              set_target_properties(OBS::libobs PROPERTIES
+                IMPORTED_LOCATION `${LIBOBS_LIB}
+                IMPORTED_IMPLIB `${LIBOBS_LIB}
+                INTERFACE_INCLUDE_DIRECTORIES `${LIBOBS_INCLUDE_DIR}
+              )
+            endif()
+          endif()
+          "@ | Out-File -FilePath "$findModuleDir/Findlibobs.cmake" -Encoding UTF8
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -G "Visual Studio 17 2022" -A ${{ matrix.arch }} `
+            -DCMAKE_MODULE_PATH="${{ github.workspace }}/cmake" `
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Package
+        run: |
+          $outDir = "release/${{ env.PLUGIN_NAME }}"
+          New-Item -ItemType Directory -Force -Path "$outDir/bin/64bit"
+          New-Item -ItemType Directory -Force -Path "$outDir/data/locale"
+          
+          # Copy DLL
+          $dll = Get-ChildItem -Path build -Recurse -Filter "${{ env.PLUGIN_NAME }}.dll" | Select-Object -First 1
+          if ($dll) {
+            Copy-Item $dll.FullName "$outDir/bin/64bit/"
+            Write-Host "Copied DLL: $($dll.FullName)"
+          } else {
+            Write-Host "WARNING: DLL not found!"
+            Get-ChildItem -Path build -Recurse -Filter "*.dll" | ForEach-Object { Write-Host $_.FullName }
+          }
+          
+          # Copy locale data
+          if (Test-Path "data/locale") {
+            Copy-Item "data/locale/*" "$outDir/data/locale/" -Recurse
+          }
+          
+          # Copy README and LICENSE
+          if (Test-Path "README.md") { Copy-Item "README.md" "$outDir/" }
+          if (Test-Path "LICENSE") { Copy-Item "LICENSE" "$outDir/" }
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PLUGIN_NAME }}-windows-${{ matrix.arch }}
+          path: release/
+
+      - name: Create Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          Compress-Archive -Path "release/${{ env.PLUGIN_NAME }}" -DestinationPath "${{ env.PLUGIN_NAME }}-windows-${{ matrix.arch }}.zip"
+
+      - name: Upload Release Asset
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.PLUGIN_NAME }}-windows-${{ matrix.arch }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
