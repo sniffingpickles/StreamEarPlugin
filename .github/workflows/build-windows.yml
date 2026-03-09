@@ -40,9 +40,17 @@ jobs:
           cp -r obs-src/libobs/* obs-sdk/include/
           ls obs-sdk/include/obs-module.h && echo "OBS headers ready"
           ls obs-sdk/include/util/c99defs.h && echo "OBS util headers ready"
-          # Copy frontend API header
+          # Copy frontend API header (moved to frontend/api/ in OBS 32.x)
           mkdir -p obs-sdk/include-frontend
-          cp obs-src/UI/obs-frontend-api/obs-frontend-api.h obs-sdk/include-frontend/
+          if [ -f obs-src/frontend/api/obs-frontend-api.h ]; then
+            cp obs-src/frontend/api/obs-frontend-api.h obs-sdk/include-frontend/
+          elif [ -f obs-src/UI/obs-frontend-api/obs-frontend-api.h ]; then
+            cp obs-src/UI/obs-frontend-api/obs-frontend-api.h obs-sdk/include-frontend/
+          else
+            echo "ERROR: obs-frontend-api.h not found in either location"
+            find obs-src -name "obs-frontend-api.h"
+            exit 1
+          fi
           ls obs-sdk/include-frontend/obs-frontend-api.h && echo "OBS frontend API header ready"
 
       - name: Generate import library from DLL
