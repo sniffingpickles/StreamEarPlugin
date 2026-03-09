@@ -43,66 +43,11 @@ jobs:
             Write-Host "Found OBS headers at: $($_.DirectoryName)"
           }
 
-      - name: Setup CMake libobs package
-        run: |
-          # Create a CMake find module for libobs
-          $findModuleDir = "cmake"
-          New-Item -ItemType Directory -Force -Path $findModuleDir
-          
-          # Search for obs paths
-          $obsInclude = (Get-ChildItem -Path obs-sdk -Recurse -Filter "obs-module.h" -ErrorAction SilentlyContinue | Select-Object -First 1).DirectoryName
-          $obsLib = (Get-ChildItem -Path obs-sdk -Recurse -Filter "obs.lib" -ErrorAction SilentlyContinue | Select-Object -First 1).DirectoryName
-          
-          if (-not $obsLib) {
-            $obsLib = (Get-ChildItem -Path obs-sdk -Recurse -Filter "obs.dll" -ErrorAction SilentlyContinue | Select-Object -First 1).DirectoryName
-          }
-          
-          Write-Host "OBS Include: $obsInclude"
-          Write-Host "OBS Lib: $obsLib"
-          
-          # Write FindLibObs cmake module
-          @"
-          # FindLibObs
-          find_path(LIBOBS_INCLUDE_DIR
-            NAMES obs-module.h
-            PATHS
-              `${CMAKE_CURRENT_LIST_DIR}/../obs-sdk
-            PATH_SUFFIXES
-              include
-              libobs
-              include/obs
-          )
-          
-          find_library(LIBOBS_LIB
-            NAMES obs libobs
-            PATHS
-              `${CMAKE_CURRENT_LIST_DIR}/../obs-sdk
-            PATH_SUFFIXES
-              lib
-              lib64
-              bin
-              bin/64bit
-          )
-          
-          include(FindPackageHandleStandardArgs)
-          find_package_handle_standard_args(libobs DEFAULT_MSG LIBOBS_LIB LIBOBS_INCLUDE_DIR)
-          
-          if(libobs_FOUND)
-            if(NOT TARGET OBS::libobs)
-              add_library(OBS::libobs SHARED IMPORTED)
-              set_target_properties(OBS::libobs PROPERTIES
-                IMPORTED_LOCATION `${LIBOBS_LIB}
-                IMPORTED_IMPLIB `${LIBOBS_LIB}
-                INTERFACE_INCLUDE_DIRECTORIES `${LIBOBS_INCLUDE_DIR}
-              )
-            endif()
-          endif()
-          "@ | Out-File -FilePath "$findModuleDir/Findlibobs.cmake" -Encoding UTF8
-
       - name: Configure CMake
+        shell: bash
         run: |
-          cmake -B build -G "Visual Studio 17 2022" -A ${{ matrix.arch }} `
-            -DCMAKE_MODULE_PATH="${{ github.workspace }}/cmake" `
+          cmake -B build -G "Visual Studio 17 2022" -A ${{ matrix.arch }} \
+            -DCMAKE_MODULE_PATH="${{ github.workspace }}/cmake" \
             -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
