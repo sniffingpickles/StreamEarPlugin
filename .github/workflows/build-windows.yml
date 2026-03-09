@@ -42,17 +42,22 @@ jobs:
           ls obs-sdk/include/util/c99defs.h && echo "OBS util headers ready"
 
       - name: Generate import library from DLL
-        shell: cmd
+        shell: pwsh
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          for /r obs-sdk %%f in (obs.dll) do set "OBS_DLL=%%f"
-          echo Found DLL: %OBS_DLL%
-          for %%f in ("%OBS_DLL%") do set "OBS_DIR=%%~dpf"
-          dumpbin /exports "%OBS_DLL%" > obs_exports.txt
-          echo EXPORTS > obs.def
-          for /f "skip=19 tokens=4" %%a in (obs_exports.txt) do if not "%%a"=="" echo %%a >> obs.def
-          lib /def:obs.def /out:"%OBS_DIR%obs.lib" /machine:x64
-          echo Generated: %OBS_DIR%obs.lib
+          $obsDll = Get-ChildItem -Path obs-sdk -Recurse -Filter "obs.dll" | Select-Object -First 1
+          $obsDir = $obsDll.DirectoryName
+          Write-Host "Found DLL: $($obsDll.FullName)"
+
+          # Use gendef (MSYS2) to generate .def from DLL
+          & "C:\msys64\mingw64\bin\gendef.exe" "$($obsDll.FullName)"
+          Move-Item -Force obs.def "$obsDir\obs.def"
+
+          # Use MSVC lib.exe to generate import library
+          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          Import-Module "$vsPath\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vsPath -DevCmdArguments "-arch=amd64" -SkipAutomaticLocation
+          lib /def:"$obsDir\obs.def" /out:"$obsDir\obs.lib" /machine:x64
+          Write-Host "Generated import library: $obsDir\obs.lib"
 
       - name: Configure CMake
         shell: bash

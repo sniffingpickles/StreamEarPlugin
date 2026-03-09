@@ -1,6 +1,13 @@
 #include "ring-buffer.h"
 #include <string.h>
 
+#ifdef _MSC_VER
+#include <intrin.h>
+#define memory_barrier() _ReadWriteBarrier(); MemoryBarrier()
+#else
+#define memory_barrier() __sync_synchronize()
+#endif
+
 void ring_buffer_init(ring_buffer_t *rb)
 {
     memset(rb, 0, sizeof(ring_buffer_t));
@@ -21,7 +28,7 @@ bool ring_buffer_push(ring_buffer_t *rb, const uint8_t *data, size_t length, int
     entry->pts = pts;
 
     /* Memory barrier: ensure data is written before advancing position */
-    __sync_synchronize();
+    memory_barrier();
     rb->write_pos++;
 
     return true;
@@ -37,7 +44,7 @@ bool ring_buffer_pop(ring_buffer_t *rb, ring_entry_t *out)
 
     memcpy(out, entry, sizeof(ring_entry_t));
 
-    __sync_synchronize();
+    memory_barrier();
     rb->read_pos++;
 
     return true;
