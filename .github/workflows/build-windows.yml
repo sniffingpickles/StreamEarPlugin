@@ -23,25 +23,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download OBS SDK
+      - name: Download OBS binaries
         run: |
           $obsUrl = "https://github.com/obsproject/obs-studio/releases/download/${{ env.OBS_VERSION }}/OBS-Studio-${{ env.OBS_VERSION }}-Windows.zip"
-          $sdkUrl = "https://github.com/obsproject/obs-studio/releases/download/${{ env.OBS_VERSION }}/OBS-Studio-${{ env.OBS_VERSION }}-Windows-SDK.zip"
-          
-          # Try SDK package first, fall back to building with full OBS
-          try {
-            Invoke-WebRequest -Uri $sdkUrl -OutFile obs-sdk.zip -ErrorAction Stop
-            Expand-Archive -Path obs-sdk.zip -DestinationPath obs-sdk
-          } catch {
-            Write-Host "SDK zip not available, downloading full OBS..."
-            Invoke-WebRequest -Uri $obsUrl -OutFile obs-full.zip
-            Expand-Archive -Path obs-full.zip -DestinationPath obs-sdk
+          Invoke-WebRequest -Uri $obsUrl -OutFile obs-bin.zip
+          Expand-Archive -Path obs-bin.zip -DestinationPath obs-sdk
+          Get-ChildItem -Path obs-sdk -Recurse -Filter "obs.dll" | Select-Object -First 1 | ForEach-Object {
+            Write-Host "Found OBS DLL at: $($_.FullName)"
           }
-          
-          # Find the actual SDK/include path
-          Get-ChildItem -Path obs-sdk -Recurse -Filter "obs-module.h" | Select-Object -First 1 | ForEach-Object {
-            Write-Host "Found OBS headers at: $($_.DirectoryName)"
-          }
+
+      - name: Download OBS source headers
+        shell: bash
+        run: |
+          git clone --depth 1 --branch ${{ env.OBS_VERSION }} https://github.com/obsproject/obs-studio.git obs-src
+          mkdir -p obs-sdk/include
+          cp -r obs-src/libobs/*.h obs-sdk/include/
+          ls obs-sdk/include/obs-module.h && echo "OBS headers ready"
 
       - name: Configure CMake
         shell: bash
