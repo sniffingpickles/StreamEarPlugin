@@ -37,8 +37,9 @@ jobs:
         run: |
           git clone --depth 1 --branch ${{ env.OBS_VERSION }} https://github.com/obsproject/obs-studio.git obs-src
           mkdir -p obs-sdk/include
-          cp -r obs-src/libobs/*.h obs-sdk/include/
+          cp -r obs-src/libobs/* obs-sdk/include/
           ls obs-sdk/include/obs-module.h && echo "OBS headers ready"
+          ls obs-sdk/include/util/c99defs.h && echo "OBS util headers ready"
 
       - name: Configure CMake
         shell: bash
