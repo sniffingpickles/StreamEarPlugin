@@ -2,8 +2,8 @@
 #include <string.h>
 
 #ifdef _MSC_VER
-#include <intrin.h>
-#define memory_barrier() _ReadWriteBarrier(); MemoryBarrier()
+#include <immintrin.h>
+#define memory_barrier() _mm_mfence()
 #else
 #define memory_barrier() __sync_synchronize()
 #endif
