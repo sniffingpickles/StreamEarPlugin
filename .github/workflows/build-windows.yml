@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 env:
-  OBS_VERSION: '30.2.3'
+  OBS_VERSION: '32.0.4'
   PLUGIN_NAME: 'obs-streamear'
 
 jobs:
@@ -25,7 +25,7 @@ jobs:
 
       - name: Download OBS binaries
         run: |
-          $obsUrl = "https://github.com/obsproject/obs-studio/releases/download/${{ env.OBS_VERSION }}/OBS-Studio-${{ env.OBS_VERSION }}-Windows.zip"
+          $obsUrl = "https://github.com/obsproject/obs-studio/releases/download/${{ env.OBS_VERSION }}/OBS-Studio-${{ env.OBS_VERSION }}-Windows-x64.zip"
           Invoke-WebRequest -Uri $obsUrl -OutFile obs-bin.zip
           Expand-Archive -Path obs-bin.zip -DestinationPath obs-sdk
           Get-ChildItem -Path obs-sdk -Recurse -Filter "obs.dll" | Select-Object -First 1 | ForEach-Object {
@@ -40,6 +40,10 @@ jobs:
           cp -r obs-src/libobs/* obs-sdk/include/
           ls obs-sdk/include/obs-module.h && echo "OBS headers ready"
           ls obs-sdk/include/util/c99defs.h && echo "OBS util headers ready"
+          # Copy frontend API header
+          mkdir -p obs-sdk/include-frontend
+          cp obs-src/UI/obs-frontend-api/obs-frontend-api.h obs-sdk/include-frontend/
+          ls obs-sdk/include-frontend/obs-frontend-api.h && echo "OBS frontend API header ready"
 
       - name: Generate import library from DLL
         shell: pwsh
@@ -73,6 +77,35 @@ jobs:
             Write-Host "Import library generated: $obsDir\obs.lib"
           } else {
             Write-Error "Failed to generate import library"
+            exit 1
+          }
+
+          # Also generate import library for obs-frontend-api.dll
+          $frontendDll = Get-ChildItem -Path obs-sdk -Recurse -Filter "obs-frontend-api.dll" | Select-Object -First 1
+          if ($frontendDll) {
+            $frontendDir = $frontendDll.DirectoryName
+            Write-Host "Found frontend DLL: $($frontendDll.FullName)"
+            python -c @"
+          import pefile
+          pe = pefile.PE(r'$($frontendDll.FullName)')
+          with open(r'$frontendDir\obs-frontend-api.def', 'w') as f:
+              f.write('LIBRARY obs-frontend-api\nEXPORTS\n')
+              count = 0
+              for exp in pe.DIRECTORY_ENTRY_EXPORT.symbols:
+                  if exp.name:
+                      f.write(f'  {exp.name.decode()}\n')
+                      count += 1
+              print(f'Extracted {count} frontend API exports')
+          "@
+            lib /def:"$frontendDir\obs-frontend-api.def" /out:"$frontendDir\obs-frontend-api.lib" /machine:x64
+            if (Test-Path "$frontendDir\obs-frontend-api.lib") {
+              Write-Host "Frontend API import library generated: $frontendDir\obs-frontend-api.lib"
+            } else {
+              Write-Error "Failed to generate frontend API import library"
+              exit 1
+            }
+          } else {
+            Write-Error "obs-frontend-api.dll not found in OBS SDK"
             exit 1
           }
 
