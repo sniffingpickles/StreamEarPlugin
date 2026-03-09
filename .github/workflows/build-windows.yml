@@ -44,20 +44,37 @@ jobs:
       - name: Generate import library from DLL
         shell: pwsh
         run: |
+          pip install pefile
+
           $obsDll = Get-ChildItem -Path obs-sdk -Recurse -Filter "obs.dll" | Select-Object -First 1
           $obsDir = $obsDll.DirectoryName
           Write-Host "Found DLL: $($obsDll.FullName)"
 
-          # Use gendef (MSYS2) to generate .def from DLL
-          & "C:\msys64\mingw64\bin\gendef.exe" "$($obsDll.FullName)"
-          Move-Item -Force obs.def "$obsDir\obs.def"
+          # Use pefile to extract exports and generate .def
+          python -c @"
+          import pefile, sys
+          pe = pefile.PE(r'$($obsDll.FullName)')
+          with open(r'$obsDir\obs.def', 'w') as f:
+              f.write('LIBRARY obs\nEXPORTS\n')
+              count = 0
+              for exp in pe.DIRECTORY_ENTRY_EXPORT.symbols:
+                  if exp.name:
+                      f.write(f'  {exp.name.decode()}\n')
+                      count += 1
+              print(f'Extracted {count} exports')
+          "@
 
           # Use MSVC lib.exe to generate import library
           $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
           Import-Module "$vsPath\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
           Enter-VsDevShell -VsInstallPath $vsPath -DevCmdArguments "-arch=amd64" -SkipAutomaticLocation
           lib /def:"$obsDir\obs.def" /out:"$obsDir\obs.lib" /machine:x64
-          Write-Host "Generated import library: $obsDir\obs.lib"
+          if (Test-Path "$obsDir\obs.lib") {
+            Write-Host "Import library generated: $obsDir\obs.lib"
+          } else {
+            Write-Error "Failed to generate import library"
+            exit 1
+          }
 
       - name: Configure CMake
         shell: bash

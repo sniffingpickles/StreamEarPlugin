@@ -1,5 +1,5 @@
 # FindLibObs - Locate OBS Studio libobs library
-# Search in obs-sdk directory (may have nested subdirectories from ZIP extraction)
+# Search for headers recursively
 file(GLOB_RECURSE _obs_header_search "${CMAKE_CURRENT_LIST_DIR}/../obs-sdk/**/obs-module.h")
 if(_obs_header_search)
   list(GET _obs_header_search 0 _obs_header_path)
@@ -7,25 +7,24 @@ if(_obs_header_search)
   message(STATUS "Found OBS headers at: ${LIBOBS_INCLUDE_DIR}")
 endif()
 
-find_library(LIBOBS_LIB
-  NAMES obs libobs
-  PATHS
-    ${CMAKE_CURRENT_LIST_DIR}/../obs-sdk
-  PATH_SUFFIXES
-    lib lib64 bin bin/64bit
-    lib/x64 bin/x64
-)
+# Search for import library (.lib) first, then DLL
+file(GLOB_RECURSE _obs_lib_search "${CMAKE_CURRENT_LIST_DIR}/../obs-sdk/**/obs.lib")
+if(_obs_lib_search)
+  list(GET _obs_lib_search 0 LIBOBS_IMPLIB)
+  message(STATUS "Found OBS import lib at: ${LIBOBS_IMPLIB}")
+endif()
 
-# If find_library didn't work, search recursively for obs.lib or obs.dll
-if(NOT LIBOBS_LIB)
-  file(GLOB_RECURSE _obs_lib_search "${CMAKE_CURRENT_LIST_DIR}/../obs-sdk/**/obs.lib")
-  if(NOT _obs_lib_search)
-    file(GLOB_RECURSE _obs_lib_search "${CMAKE_CURRENT_LIST_DIR}/../obs-sdk/**/obs.dll")
-  endif()
-  if(_obs_lib_search)
-    list(GET _obs_lib_search 0 LIBOBS_LIB)
-    message(STATUS "Found OBS library at: ${LIBOBS_LIB}")
-  endif()
+file(GLOB_RECURSE _obs_dll_search "${CMAKE_CURRENT_LIST_DIR}/../obs-sdk/**/obs.dll")
+if(_obs_dll_search)
+  list(GET _obs_dll_search 0 LIBOBS_DLL)
+  message(STATUS "Found OBS DLL at: ${LIBOBS_DLL}")
+endif()
+
+# Use whichever we found for the standard args check
+if(LIBOBS_IMPLIB)
+  set(LIBOBS_LIB "${LIBOBS_IMPLIB}")
+elseif(LIBOBS_DLL)
+  set(LIBOBS_LIB "${LIBOBS_DLL}")
 endif()
 
 include(FindPackageHandleStandardArgs)
@@ -34,10 +33,22 @@ find_package_handle_standard_args(libobs DEFAULT_MSG LIBOBS_LIB LIBOBS_INCLUDE_D
 if(libobs_FOUND)
   if(NOT TARGET OBS::libobs)
     add_library(OBS::libobs SHARED IMPORTED)
-    set_target_properties(OBS::libobs PROPERTIES
-      IMPORTED_LOCATION "${LIBOBS_LIB}"
-      IMPORTED_IMPLIB "${LIBOBS_LIB}"
-      INTERFACE_INCLUDE_DIRECTORIES "${LIBOBS_INCLUDE_DIR}"
-    )
+    if(LIBOBS_IMPLIB)
+      set_target_properties(OBS::libobs PROPERTIES
+        IMPORTED_IMPLIB "${LIBOBS_IMPLIB}"
+        INTERFACE_INCLUDE_DIRECTORIES "${LIBOBS_INCLUDE_DIR}"
+      )
+    else()
+      set_target_properties(OBS::libobs PROPERTIES
+        IMPORTED_LOCATION "${LIBOBS_DLL}"
+        IMPORTED_IMPLIB "${LIBOBS_DLL}"
+        INTERFACE_INCLUDE_DIRECTORIES "${LIBOBS_INCLUDE_DIR}"
+      )
+    endif()
+    if(LIBOBS_DLL)
+      set_target_properties(OBS::libobs PROPERTIES
+        IMPORTED_LOCATION "${LIBOBS_DLL}"
+      )
+    endif()
   endif()
 endif()
