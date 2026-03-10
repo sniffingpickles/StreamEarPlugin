@@ -46,11 +46,6 @@ static bool streamear_output_start(void *data)
 
     ctx->active = true;
     blog(LOG_INFO, "[StreamEar] Output started on port %d", ctx->port);
-
-    if (!obs_output_can_begin_data_capture(ctx->output, OBS_OUTPUT_AUDIO))
-        return false;
-
-    obs_output_begin_data_capture(ctx->output, OBS_OUTPUT_AUDIO);
     return true;
 }
 
@@ -59,7 +54,6 @@ static void streamear_output_stop(void *data, uint64_t ts)
     struct streamear_output *ctx = data;
     UNUSED_PARAMETER(ts);
 
-    obs_output_end_data_capture(ctx->output);
     tcp_sender_stop(&ctx->tcp_sender);
     ctx->active = false;
 
